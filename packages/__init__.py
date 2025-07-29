@@ -1,0 +1,1 @@
+from packages.delete import MessageDeleter
