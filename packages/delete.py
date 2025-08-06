@@ -6,7 +6,7 @@ import requests
 from time import sleep
 from requests import Response
 
-from typing import Union, Type, Optional, Any, Tuple
+from typing import Any, Tuple, List
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -19,53 +19,44 @@ class MessageDeleter:
     def __init__(self, token: str, channel_id: str):
         self.token = token
         self.channel_id = channel_id
+        self.base_endpoint: str = f"https://discord.com/api/v9/channels/{self.channel_id}/messages"
 
     def exponential_backoff(self, retry_after: float, attempt: int) -> float:
         '''me when the CS lesson on time complexities comes in handy pray emoji
         exponential vs quadratic head ahh no srsly i actualy confused 2^n and n^2'''
         return (retry_after / 1000.0) * (2 ** attempt)
 
-    def get_first_id(self) -> str:
-        message_response: Response = requests.get(
-            url=f"https://discord.com/api/v9/channels/{self.channel_id}/messages",
-            headers={"Authorization": self.token}
-        )
-        return message_response.json()[0]['id']
-
-    def delete_message(self) -> None:
-        current_id = self.get_first_id()
-
-        while True:
-            delete_request: Response = requests.delete(
-                url=f"https://discord.com/api/v9/channels/{self.channel_id}/messages/{current_id}",
-                params={'before': current_id},
-                headers={"Authorization": self.token}
-            )
-            if not delete_request.ok:
-                error_count: int = 0
-                if delete_request.status_code == 429:
-                    wait_time: Any = delete_request.headers.get("retry-after")
-                    error_logger.warning(f"Rate limit hit- waiting {wait_time} seconds")
-                    error_count+= 1
-                    if error_count == random.randrange(3, 6):
-                        sleep(self.exponential_backoff(wait_time, error_count))
-                    else:
-                        sleep(wait_time)
+    def handle_ratelimit(self, response: Response) -> None:
+        '''USING ELSE STATEMENTS ARENT A CRIME GUYS I DONT KNOW HOW ELSE TO DO IT THIS IMMEDIATE SECOND THX'''
+        if not response.ok:
+            if response.status_code == 429:
+                rate_count: int = 0
+                retry_header: Any = response.headers.get('retry-after')
+                rate_count += 1
+                if rate_count == random.randrange(3, 6):
+                    sleep(self.exponential_backoff(retry_header, rate_count))
                 else:
-                    error_logger.error(f"{delete_request.status_code} - {delete_request.reason.upper()}")
+                    sleep(retry_header)
+            else:
+                error_logger.error(f'{response.status_code} - {response.reason}')
 
+    def delete_messages(self) -> None:
+        get_response: Response = requests.get(
+            url=self.base_endpoint,
+            headers={"Authorization": self.token}
+        ) #default is 50 remember that lock in
+        self.handle_ratelimit(get_response)
 
-
-
-
-
-while True:
-    message_response: Response = requests.get(
-                url=f"https://discord.com/api/v9/channels/{self.channel_id}/messages",
+        json_response: Any = get_response.json()
+        if not json_response:
+            print("All messages have been deleted/n")
+            return
+        
+        message_ids: List[str] = [message['id'] for message in json_response]
+        for id in message_ids:
+            delete_request: Response = requests.delete(
+                url=f"{self.base_endpoint}/{id}",
                 headers={"Authorization": self.token}
             )
-    for message in message_response.json():
-        requests.delete(
-            url=f"https://discord.com/api/v9/channels/{self.channel_id}/messages/{message_response['id']}",
-            headers={"Authorization": self.token}
-        )
+            self.handle_ratelimit(delete_request)
+        
