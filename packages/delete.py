@@ -20,6 +20,7 @@ class MessageDeleter:
         self.token = token
         self.channel_id = channel_id
         self.base_endpoint: str = f"https://discord.com/api/v9/channels/{self.channel_id}/messages"
+        self.rate_count: int = 0
 
     def exponential_backoff(self, retry_after: float, attempt: int) -> float:
         '''me when the CS lesson on time complexities comes in handy pray emoji
@@ -31,11 +32,11 @@ class MessageDeleter:
         if response.ok:
             return
         if response.status_code == 429:
+            self.rate_count += 1
             retry_header: Any = response.headers.get('retry-after')
-            rate_count: int = 1
            
-            if rate_count == random.randrange(3, 6):
-                sleep(self.exponential_backoff(int(retry_header), rate_count))
+            if self.rate_count == random.randrange(3, 6):
+                sleep(self.exponential_backoff(int(retry_header), self.rate_count))
             else:
                 sleep(int(retry_header))
             return
