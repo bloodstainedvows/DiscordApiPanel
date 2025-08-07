@@ -1,1 +1,3 @@
-from packages.delete import MessageDeleter
+from .delete import MessageDeleter
+
+__all__ = ['MessageDeleter']

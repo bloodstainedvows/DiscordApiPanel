@@ -6,7 +6,7 @@ import requests
 from time import sleep
 from requests import Response
 
-from typing import Any, Tuple, List
+from typing import Any, List
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -28,35 +28,37 @@ class MessageDeleter:
 
     def handle_ratelimit(self, response: Response) -> None:
         '''USING ELSE STATEMENTS ARENT A CRIME GUYS I DONT KNOW HOW ELSE TO DO IT THIS IMMEDIATE SECOND THX'''
-        if not response.ok:
-            if response.status_code == 429:
-                rate_count: int = 0
-                retry_header: Any = response.headers.get('retry-after')
-                rate_count += 1
-                if rate_count == random.randrange(3, 6):
-                    sleep(self.exponential_backoff(retry_header, rate_count))
-                else:
-                    sleep(retry_header)
+        if response.ok:
+            return
+        if response.status_code == 429:
+            retry_header: Any = response.headers.get('retry-after')
+            rate_count: int = 1
+           
+            if rate_count == random.randrange(3, 6):
+                sleep(self.exponential_backoff(int(retry_header), rate_count))
             else:
-                error_logger.error(f'{response.status_code} - {response.reason}')
+                sleep(int(retry_header))
+            return
+        error_logger.error(f'{response.status_code} - {response.reason}')
 
     def delete_messages(self) -> None:
-        get_response: Response = requests.get(
-            url=self.base_endpoint,
-            headers={"Authorization": self.token}
-        ) #default is 50 remember that lock in
-        self.handle_ratelimit(get_response)
-
-        json_response: Any = get_response.json()
-        if not json_response:
-            print("All messages have been deleted/n")
-            return
-        
-        message_ids: List[str] = [message['id'] for message in json_response]
-        for id in message_ids:
-            delete_request: Response = requests.delete(
-                url=f"{self.base_endpoint}/{id}",
+        while True:
+            get_response: Response = requests.get(
+                url=self.base_endpoint,
                 headers={"Authorization": self.token}
-            )
-            self.handle_ratelimit(delete_request)
-        
+            ) #default is 50 remember that lock in
+            self.handle_ratelimit(get_response)
+
+            json_response: Any = get_response.json()
+            if not json_response:
+                print("All messages have been deleted\n")
+                break
+            
+            message_ids: List[str] = [message['id'] for message in json_response]
+            for id in message_ids:
+                delete_request: Response = requests.delete(
+                    url=f"{self.base_endpoint}/{id}",
+                    headers={"Authorization": self.token}
+                )
+                self.handle_ratelimit(delete_request)
+            
