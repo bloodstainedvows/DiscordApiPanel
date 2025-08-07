@@ -28,7 +28,7 @@ def main():
         error_logger.error('Channel ID cannot be empty')
         sys.exit(1)
     print("Starting deletion..\n")
-    deleter: MessageDeleter = MessageDeleter(auth_token, "1398892808911458314")
+    deleter: MessageDeleter = MessageDeleter(auth_token, channel_id)
     deleter.delete_messages()
 
 
