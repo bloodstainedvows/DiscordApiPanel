@@ -1,13 +1,14 @@
 import os
 import sys
 import json
+import random
 import asyncio
 from asyncio import sleep
 
 import logging
 from logging import Logger
 
-from typing import List, Dict, Tuple, Any
+from typing import List, Tuple, Any
 import websockets
 from websockets import ClientConnection
 
@@ -38,12 +39,20 @@ class StatusCycler:
         print("heartbeat response: ", ws_response)
         return websocket, ws_response
     
+    @property
+    async def get_status(self):
+        websocket, ws_response = await self.connect()
+        if ws_response.get("t") == "PRESENCE_UPDATE":
+            return ws_response["d"]["status"]
+        
+
     async def identity(self, websocket: ClientConnection):
-        payload: Dict[str, int | Dict[str, str | int | Dict[str, str]]] = {
+        await websocket.send(json.dumps(
+            {
             "op": 2,
             "d": {
                 "token": self.token,
-                "intents": 512,
+                "intents": None,
                 "properties": {
                     "$os": "discordPanel",
                     "$browser": "discordPanel",
@@ -51,7 +60,7 @@ class StatusCycler:
                 }
             }
         }
-        await websocket.send(json.dumps(payload))
+        ))
 
     async def heartbeat(self, websocket: ClientConnection, interval: int):
         while True:
@@ -64,5 +73,20 @@ class StatusCycler:
                 sys.stdout.write("Heartbeat sent")
                 await sleep(interval / 1000)
 
-    async def update(websocket: ClientConnection, )
+    async def update(self, websocket: ClientConnection, statusList: List[Any]):
+
+        await websocket.send(json.dumps({
+            "op": 3,
+            "d": {
+                "since": None,
+                "activites": [
+                    {
+                        "type": 4,
+                        "state": random.choice(statusList)
+                    }
+                ],
+                "status": self.get_status
+            }
+        }))
+
 
