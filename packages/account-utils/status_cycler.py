@@ -73,7 +73,7 @@ class StatusCycler:
                 sys.stdout.write("Heartbeat sent")
                 await sleep(interval / 1000)
 
-    async def update(self, websocket: ClientConnection, statusList: List[Any]):
+    async def update(self, websocket: ClientConnection, status):
 
         await websocket.send(json.dumps({
             "op": 3,
@@ -82,11 +82,23 @@ class StatusCycler:
                 "activites": [
                     {
                         "type": 4,
-                        "state": random.choice(statusList)
+                        "state": status
                     }
                 ],
-                "status": self.get_status
+                "status": self.get_status,
+                "afk": False
             }
         }))
+    
+    async def cycle_statuses(self, websocket: ClientConnection):
+        status_list: List[str] = [
+            input("\nEnter the status you'd like to rotate:\n") for i in range(int(input("\nHow many statuses do you want to cycle through:\n")))
+        ]
+        status: int = 0
+        while True:
+            current_status = status_list[status]
+            await self.update(websocket, current_status)
+            status = (status + 1) % len(status_list)
+            await sleep(25)
 
 
