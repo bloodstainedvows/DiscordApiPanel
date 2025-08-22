@@ -10,7 +10,7 @@ from logging import Logger
 import websockets
 from websockets import ClientConnection
 
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, Tuple
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -26,35 +26,42 @@ class StatusCycler:
         self.sequence: Optional[int] = None
 
     async def initiate_cycler(self):
-        async with websockets.connect(self.gateway, ssl=True) as websocket:
-            hello_event: Any = json.loads(await websocket.recv())
-            if hello_event['op'] != 10:
-                error_logger.error(f'HELLO payload not received - opcode {hello_event['op']}')
-                sys.exit(1)
-            self.heartbeat_interval = hello_event['d']['heartbeat_interval']
-            await websocket.send(json.dumps(
-                {
-                    'op': 2,
-                    'd': {
-                        'token': self.token,
-                        'properties': {
-                            'os': platform.system(),
-                            'browser': 'discordPanel',
-                            'device': 'discordPanel'
-                        }
-                        'intents': 0
+        hello_event: Any = json.loads(await self.websocket.recv())
+        if hello_event['op'] != 10:
+            error_logger.error(f'HELLO payload not received - opcode {hello_event['op']}')
+            sys.exit(1)
+        self.heartbeat_interval = hello_event['d']['heartbeat_interval']
+        await self.websocket.send(json.dumps(
+            {
+                'op': 2,
+                'd': {
+                    'token': self.token,
+                    'properties': {
+                        'os': platform.system(),
+                        'browser': 'discordPanel',
+                        'device': 'discordPanel'
                     }
+                    'intents': 0
                 }
-            ))
+            }
+        ))
     
-    async def send_heartbeat(self, websocket: ClientConnection):
-        await websocket.send(json.dumps(
+    @property
+    async def websocket(self) -> ClientConnection:
+        return await websockets.connect(self.gateway, ssl=True)
+    
+    async def send_heartbeat(self) -> Any:
+        heartbeat: Any = self.websocket.send(json.dumps(
             {
                 'op': 1,
                 'd': self.sequence
             }
         ))
         await sleep(self.heartbeat_interval / 1000) # type: ignore
+        return heartbeat
+    
+    async def heartbeat_ack(self, ) -> bool:
+        heartbeat_ack: Any = json.loads(websockets.recv)
 
     async def cycle_statuses(self, websocket: ClientConnection):
         status_list: List[str] = [
