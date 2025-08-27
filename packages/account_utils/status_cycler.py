@@ -3,7 +3,7 @@ import ssl
 import json
 import platform
 
-from enum import Enum
+from .enums import CloseEventCode, GatewayOpcode
 
 import asyncio
 from asyncio import sleep
@@ -22,15 +22,6 @@ logging.basicConfig(
 )
 error_logger: Logger = logging.getLogger(__name__)
 
-class CloseCodes(Enum):
-    UNKNOWN_ERROR = (4000, True)
-    UNKNOWN_OPCODE = (4001, True)
-    DECODE_ERROR = (4002, True)
-    NOT_AUTHENTICATED = (4003, True)
-
-    def __init__(self, code: int, reconnect: bool):
-        self.code = code
-        self.reconnect = reconnect
 
 class HeartbeatConnectionError(Exception):
     def __init__(self, message: str, value: bool = False):
@@ -51,16 +42,10 @@ class StatusCycler:
         if self._websocket is None:
             self._websocket = await websockets.connect(self.gateway)
 
-
-    async def initiate_cycler(self):
-        if not self._websocket:
-            error_logger.error('Websocket not connected')
+    async def close_websocket(self) -> None:
+        if self._websocket:
+            await self._websocket.close()
             return
-        hello_event: Any = json.loads(await self._websocket.recv())
-        if hello_event['op'] != 10:
-            error_logger.error(f'HELLO payload not received - opcode {hello_event['op']}')
-            sys.exit(1)
-        self.heartbeat_interval = hello_event['d']['heartbeat_interval']
     
     async def send_heartbeat(self) -> None:
         if not self._websocket:
@@ -68,13 +53,13 @@ class StatusCycler:
             return
         await self._websocket.send(json.dumps(
             {
-                'op': 1,
+                'op': GatewayOpcode.HEARTBEAT,
                 'd': self.sequence
             }
         ))
 
     async def heartbeat_ack(self, payload: Any) -> bool:
-        if payload['op'] != 11:
+        if payload['op'] != GatewayOpcode.HELLO:
             error_logger.error('Heartbeat ACK not received')
             return False
         return True
@@ -91,7 +76,7 @@ class StatusCycler:
             return
         await self._websocket.send(json.dumps(
             {
-                'op': 2,
+                'op': GatewayOpcode.IDENTIFY,
                 'd': {
                     'token': self.token,
                     'properties': {
@@ -100,36 +85,53 @@ class StatusCycler:
                         'device': 'discordPanel'
                     },
                     'intents': 0
-                }
-            }
-        ))
+                }}))
 
     async def identify_payload(self, payload: Any):
         match payload['op']:
-            case 0:
+            case GatewayOpcode.DISPATCH:
                 event_type: str = payload['t']
                 if event_type != 'READY':
                     error_logger.warning(f'Event received: {event_type}')
                     return
                 self.resume_url = payload['d']['resume_gateway_url']
                 self.session_id = payload['d']['session_id']
-            case 10:
+            case GatewayOpcode.HELLO:
                 self.heartbeat_interval = payload['d']['heartbeat_interval']
                 asyncio.create_task(self.heartbeat_cycle())
                 await self.send_identity()
 
-    async def reconnect(self) -> None:
+    async def code_true(self, code: int) -> bool:
 
+        close_event: Optional[CloseEventCode] = None
 
-    '''async def cycle_statuses(self, websocket: ClientConnection):
-        status_list: List[str] = [
-            input("\nEnter the status you'd like to rotate:\n") for i in range(int(input("\nHow many statuses do you want to cycle through:\n")))
-        ]
-        status: int = 0
-        while True:
-            current_status = status_list[status]
-            await self.update(websocket, current_status)
-            status = (status + 1) % len(status_list)
-            await sleep(25)'''
+        for close_code in CloseEventCode:
+            if close_code.code == code:
+                close_event = close_code
+                break
 
-
+        if not close_event:
+            error_logger.error('Closed code not identified')
+            return False
+        
+        if not close_event.reconnect:
+            error_logger.warning('reconnection unavailable')
+            return False
+        
+        await self.reconnect()
+    
+    async def reconnect(self):
+        if not self.resume_url:
+            error_logger.error('No valid resume gateway')
+            return
+        self._websocket = await websockets.connect(uri=self.resume_url, ssl=True)
+        await self._websocket.send(json.dumps(
+            {
+                'op': GatewayOpcode.RESUME,
+                'd': {
+                    'token': self.token,
+                    'session_id': self.session_id,
+                    'seq': self.sequence
+                }
+            }
+        ))
