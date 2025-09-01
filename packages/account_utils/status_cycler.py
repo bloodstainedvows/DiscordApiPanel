@@ -70,11 +70,11 @@ class StatusCycler:
             await sleep(self.heartbeat_interval / 1000) # type: ignore
             await self.send_heartbeat()
         
-    async def send_identity(self) -> None:
+    async def send_identity(self) -> bool:
         if not self._websocket:
             error_logger.error('Websocket not connected')
-            return
-        await self._websocket.send(json.dumps(
+            return False
+        if not await self._websocket.send(json.dumps(
             {
                 'op': GatewayOpcode.IDENTIFY,
                 'd': {
@@ -85,7 +85,13 @@ class StatusCycler:
                         'device': 'discordPanel'
                     },
                     'intents': 0
-                }}))
+                }})):
+            error_logger.error('Identity payload couldnt be sent')
+        response: Any = json.loads(await self._websocket.recv())
+        if response['op'] == GatewayOpcode.DISPATCH and response['t'] == 'READY':
+            return True
+        error_logger.error('Ready event not received')
+        return False
 
     async def identify_payload(self, payload: Any):
         match payload['op']:
@@ -119,11 +125,12 @@ class StatusCycler:
             return False
         
         await self.reconnect()
+        return True
     
-    async def reconnect(self):
+    async def reconnect(self) -> bool:
         if not self.resume_url:
             error_logger.error('No valid resume gateway')
-            return
+            return False
         self._websocket = await websockets.connect(uri=self.resume_url, ssl=True)
         await self._websocket.send(json.dumps(
             {
@@ -135,3 +142,13 @@ class StatusCycler:
                 }
             }
         ))
+        response: Any = await json.loads(await self._websocket.recv())
+        if not response['op'] == GatewayOpcode.INVALID_SESSION:
+            return True
+        error_logger.warning('invalid session received - starting a new session')
+        self._websocket = await websockets.connect(uri=self.gateway, ssl=True)
+        if not await self.send_identity():
+            await self.close_websocket()
+            error_logger.error('Failed reconnection')
+            return False
+        return True
