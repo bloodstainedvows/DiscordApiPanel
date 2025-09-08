@@ -19,9 +19,10 @@ logging.basicConfig(
 )
 error_logger: Logger = logging.getLogger(__name__)
 
-class StatusCycler:
-    def __init__(self, token: str) -> None:
+class Gateway:
+    def __init__(self, token: str, payload: Any) -> None:
         self.token = token
+        self._payload = payload
         self.gateway: str = "wss://gateway.discord.gg/?v=10&encoding=json"
         self.resume_url: Optional[str] = None
         self.session_id: Optional[str] = None
@@ -117,18 +118,22 @@ class StatusCycler:
             return False
 
     async def handle_payload(self, payload: Any):
+        if not self._payload:
+            error_logger.error('No payload to send')
         match payload['op']:
             case GatewayOpcode.DISPATCH:
                 event: str = payload['t']
                 if event == 'READY':
                     self.resume_url = payload['d']['resume_gateway_url']
                     self.session_id = payload['d']['session_id']
-                    error_logger.info('Ready event received')
+
+                    await self._websocket.send(json.dumps(self._payload))
                 else:
                     error_logger.info(f'Event received: {event}')
             
             case GatewayOpcode.HEARTBEAT:
                 await self.send_heartbeat()
+                
 
             case GatewayOpcode.HEARTBEAT_ACK:
                 self.heartbeat_acknowledged = True
@@ -211,33 +216,4 @@ class StatusCycler:
             error_logger.error(f'Reconnection failed: {e}')
             return False
 
-    async def update_presence(self, status: str, emoji_name: Optional[str], emoji_id: Optional[str]) -> None:
-        if not self._websocket:
-            error_logger.error('Websocket not connected')
-            return
-            
-        status_payload: Any = {
-            'op': GatewayOpcode.PRESENCE_UPDATE,
-            'd': {
-                'since': None,
-                'activities': [
-                    {
-                        'type': 4,
-                        'state': status,
-                        'name': 'Custom Status',
-                        'id': 'custom'
-                    }
-                ],
-                'status': 'dnd',
-                'afk': False
-            }
-        }
-        
-        '''if emoji_name or emoji_id:
-            status_payload['d']['activities'][0]['emoji'] = {}
-            if emoji_name:
-                status_payload['d']['activities'][0]['emoji']['name'] = emoji_name
-            if emoji_id:
-                status_payload['d']['activities'][0]['emoji']['id'] = emoji_id
-        
-        await self._websocket.send(json.dumps(status_payload))'''
+    
