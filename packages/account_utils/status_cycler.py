@@ -1,20 +1,8 @@
-import sys
-import ssl
-import json
-import platform
-
-from .enums import CloseEventCode, GatewayOpcode
-
-import asyncio
-from asyncio import sleep
-
 import logging
 from logging import Logger
 
-import websockets
-from websockets import ClientConnection
-
-from typing import Optional, Any, Dict, List, Tuple
+from typing import Any, Optional
+from .enums import GatewayOpcode
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -22,133 +10,34 @@ logging.basicConfig(
 )
 error_logger: Logger = logging.getLogger(__name__)
 
-
-class HeartbeatConnectionError(Exception):
-    def __init__(self, message: str, value: bool = False):
-        super().__init__(message)
-        self.value = value
-
 class StatusCycler:
-    def __init__(self, token: str) -> None:
-        self.token = token
-        self.gateway: str = "wss://gateway.discord.gg/?v=10&encoding=json"
-        self.resume_url: Optional[str] = None
-        self.session_id: Optional[str] = None
-        self._websocket: Optional[ClientConnection] = None
-        self.heartbeat_interval: Optional[int] = None
-        self.sequence: Optional[int] = None
+    def __init__(self, token: str):
+        self._token = token
 
-    async def connect(self) -> None:
-        if self._websocket is None:
-            self._websocket = await websockets.connect(self.gateway)
-
-    async def close_websocket(self) -> None:
-        if self._websocket:
-            await self._websocket.close()
-            return
-    
-    async def send_heartbeat(self) -> None:
-        if not self._websocket:
-            error_logger.error('Websocket not connected')
-            return
-        await self._websocket.send(json.dumps(
-            {
-                'op': GatewayOpcode.HEARTBEAT,
-                'd': self.sequence
+    def status_payload(self, status: str, emoji_id: Optional[str], emoji_name: Optional[str]) -> Any:
+        status_payload: Any = {
+            'op': GatewayOpcode.PRESENCE_UPDATE,
+            'd': {
+                'since': None,
+                'activities': [
+                    {
+                        'type': 4,
+                        'state': status,
+                        'name': 'Custom Status',
+                        'id': 'custom'
+                    }
+                ],
+                'status': 'dnd',
+                'afk': False
             }
-        ))
-
-    async def heartbeat_ack(self, payload: Any) -> bool:
-        if payload['op'] != GatewayOpcode.HELLO:
-            error_logger.error('Heartbeat ACK not received')
-            return False
-        return True
+        }
+        
+        if not emoji_name or not emoji_id:
+            return status_payload
+        status_payload['d']['activities'][0]['emoji'] = {}
+        status_payload['d']['activities'][0]['emoji']['name'] = emoji_name
+        status_payload['d']['activities'][0]['emoji']['id'] = emoji_id
+        return status_payload
     
-    async def heartbeat_cycle(self) -> None:
-        running: bool = True
-        while running:
-            await sleep(self.heartbeat_interval / 1000) # type: ignore
-            await self.send_heartbeat()
-        
-    async def send_identity(self) -> bool:
-        if not self._websocket:
-            error_logger.error('Websocket not connected')
-            return False
-        if not await self._websocket.send(json.dumps(
-            {
-                'op': GatewayOpcode.IDENTIFY,
-                'd': {
-                    'token': self.token,
-                    'properties': {
-                        'os': platform.system(),
-                        'browser': 'discordPanel',
-                        'device': 'discordPanel'
-                    },
-                    'intents': 0
-                }})):
-            error_logger.error('Identity payload couldnt be sent')
-        response: Any = json.loads(await self._websocket.recv())
-        if response['op'] == GatewayOpcode.DISPATCH and response['t'] == 'READY':
-            return True
-        error_logger.error('Ready event not received')
-        return False
-
-    async def identify_payload(self, payload: Any):
-        match payload['op']:
-            case GatewayOpcode.DISPATCH:
-                event_type: str = payload['t']
-                if event_type != 'READY':
-                    error_logger.warning(f'Event received: {event_type}')
-                    return
-                self.resume_url = payload['d']['resume_gateway_url']
-                self.session_id = payload['d']['session_id']
-            case GatewayOpcode.HELLO:
-                self.heartbeat_interval = payload['d']['heartbeat_interval']
-                asyncio.create_task(self.heartbeat_cycle())
-                await self.send_identity()
-
-    async def code_true(self, code: int) -> bool:
-
-        close_event: Optional[CloseEventCode] = None
-
-        for close_code in CloseEventCode:
-            if close_code.code == code:
-                close_event = close_code
-                break
-
-        if not close_event:
-            error_logger.error('Closed code not identified')
-            return False
-        
-        if not close_event.reconnect:
-            error_logger.warning('reconnection unavailable')
-            return False
-        
-        await self.reconnect()
-        return True
-    
-    async def reconnect(self) -> bool:
-        if not self.resume_url:
-            error_logger.error('No valid resume gateway')
-            return False
-        self._websocket = await websockets.connect(uri=self.resume_url, ssl=True)
-        await self._websocket.send(json.dumps(
-            {
-                'op': GatewayOpcode.RESUME,
-                'd': {
-                    'token': self.token,
-                    'session_id': self.session_id,
-                    'seq': self.sequence
-                }
-            }
-        ))
-        response: Any = await json.loads(await self._websocket.recv())
-        if not response['op'] == GatewayOpcode.INVALID_SESSION:
-            return True
-        error_logger.warning('invalid session received - starting a new session')
-        self._websocket = await websockets.connect(uri=self.gateway, ssl=True)
-        if not await self.send_identity():
-            await self.close_websocket()
-            error_logger.error('Failed reconnection')
-            return False
-        return True
+    async def cycle_status(self) -> None:
+        '''blahblah cycle'''
