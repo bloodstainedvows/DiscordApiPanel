@@ -20,9 +20,8 @@ logging.basicConfig(
 error_logger: Logger = logging.getLogger(__name__)
 
 class Gateway:
-    def __init__(self, token: str, payload: Any) -> None:
+    def __init__(self, token: str) -> None:
         self.token = token
-        self._payload = payload
         self.gateway: str = "wss://gateway.discord.gg/?v=10&encoding=json"
         self.resume_url: Optional[str] = None
         self.session_id: Optional[str] = None
@@ -117,19 +116,18 @@ class Gateway:
             error_logger.error('Identity payload couldnt be sent')
             return False
 
-    async def handle_payload(self, payload: Any):
-        if not self._payload:
-            error_logger.error('No payload to send')
-        match payload['op']:
+    async def handle_payload(self, received_payload: Any):
+        match received_payload['op']:
             case GatewayOpcode.DISPATCH:
-                event: str = payload['t']
+                event: str = received_payload['t']
                 if event == 'READY':
-                    self.resume_url = payload['d']['resume_gateway_url']
-                    self.session_id = payload['d']['session_id']
+                    self.resume_url = received_payload['d']['resume_gateway_url']
+                    self.session_id = received_payload['d']['session_id']
 
-                    await self._websocket.send(json.dumps(self._payload))
+                    #payload
+
                 else:
-                    error_logger.info(f'Event received: {event}')
+                    error_logger.warning(f'Event received: {event}')
             
             case GatewayOpcode.HEARTBEAT:
                 await self.send_heartbeat()
@@ -146,10 +144,10 @@ class Gateway:
                 await self.reconnect()
             
             case _:
-                error_logger.warning(f'Unrecognized opcode: {payload["op"]}')
+                error_logger.warning(f'Unrecognized opcode: {received_payload["op"]}')
 
-        if 's' in payload and payload['s'] is not None:
-            self.sequence = payload['s']
+        if 's' in received_payload and received_payload['s'] is not None:
+            self.sequence = received_payload['s']
 
     async def main_loop(self):
         while True:
