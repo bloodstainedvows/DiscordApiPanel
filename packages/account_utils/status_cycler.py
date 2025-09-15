@@ -42,6 +42,15 @@ class StatusCycler:
         status_payload['d']['activities'][0]['emoji']['id'] = emoji_id
         return status_payload
     
+    async def next_status(self) -> Any:
+        if not self.status_list:
+            return
+        
+        current_status: Dict[str, str] = self.status_list[self.current_index]
+        self.current_index = (self.current_index + 1) % len(self.status_list)
+
+        return self.status_payload(current_status['status'], current_status['emoji_id'], current_status['status_emoji'])
+
     async def setup(self) -> None:
         status_count: int = int(input('\nHow many statuses would you like to cycle through: '))
         for i in range(status_count):
@@ -54,5 +63,7 @@ class StatusCycler:
 
             self.status_list.append(status_dict)
 
+    async def cycle_statuses(self) -> None:
+        '''blah blah blah'''
    
 
