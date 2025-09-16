@@ -1,14 +1,12 @@
-import random
 import logging
 from logging import Logger
 
 import requests
-from time import sleep
 from requests import Response
 
 from typing import Any, List
 
-from ratelimit_bypass import handle_ratelimit
+from .ratelimit_bypass import handle_ratelimit
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -24,7 +22,7 @@ class MessageDeleter:
         self.base_endpoint: str = f"https://discord.com/api/v10/channels/{self.channel_id}/messages"
         self.rate_count: int = 0
 
-        self.user_id: str = requests.get(
+        self.user_id: Any = requests.get(
             url=f"https://discord.com/api/v10/users/@me",
             headers={"Authorization": self.token}
         ).json()['id']
@@ -35,7 +33,7 @@ class MessageDeleter:
                 url=self.base_endpoint,
                 headers={"Authorization": self.token}
             ) #default is 50 remember that lock in
-            handle_ratelimit(get_response, self.rate_count)
+            self.rate_count = handle_ratelimit(get_response, self.rate_count)
 
             json_response: Any = get_response.json()
             if not json_response:
@@ -50,5 +48,4 @@ class MessageDeleter:
                     url=f"{self.base_endpoint}/{id}",
                     headers={"Authorization": self.token}
                 )
-                handle_ratelimit(delete_request, self.rate_count)
-            
+                self.rate_count = handle_ratelimit(delete_request, self.rate_count)
